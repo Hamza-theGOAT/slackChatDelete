@@ -27,6 +27,26 @@ def APIreqDelay(channelID, messageTS, attempts, client):
                 break
 
 
+def getThreadMsg(client, channelID, threadTS, timeLimit):
+    response = client.conversations_replies(
+        channel=channelID,
+        ts=threadTS,
+        inclusive=True
+    )
+
+    threadMsgs = response.get('messages', [])
+    print(f"📝 Found {len(threadMsgs)} messages in thread {threadTS}")
+
+    # Filter messages by time limit
+    msgToDel = []
+    for msg in threadMsgs:
+        msgTS = float(msg['ts'])
+        if msgTS >= timeLimit:
+            msgToDel.append(msg)
+
+    return msgToDel
+
+
 def deleteMessage(token, channelID, timeRange):
     client = WebClient(token=token)
     rightNow = datetime.now()
@@ -40,14 +60,22 @@ def deleteMessage(token, channelID, timeRange):
     for message in messages:
         messageTS = float(message['ts'])
         if messageTS >= timeTimestamp:
-            try:
-                APIreqDelay(channelID, message['ts'], 5, client)
-                print(f"Deleted message with timestamp {message['ts']}")
-            except SlackApiError as e:
-                print(f"Error deleting message: {e.response['error']}")
+
+            # Check if this message has replies
+            if message.get('reply_count', 0) > 0:
+                threadTS = message['ts']
+
+                # Get all messages in this thread
+                threadMsgs = getThreadMsg(
+                    client, channelID, threadTS, timeTimestamp)
+
+                # Delete thread messages (including the parent)
+                for threadMsg in threadMsgs:
+                    APIreqDelay(channelID, threadMsg['ts'], 5, client)
             else:
-                print(f"""Skipping message with timestamp {
-                      message['ts']} as it's outside the time frame""")
+                APIreqDelay(channelID, message['ts'], 5, client)
+        else:
+            print(f"⏭️ Skipping message {message['ts']} (outside time range)")
 
 
 def main():
